@@ -104,15 +104,23 @@ EXAMPLE navigate actions:
         
         # Parse action from response
         try:
+            # Log raw response for debugging
+            print(f"\n🤖 Raw LLM Response (first 500 chars):\n{response.completion[:500]}\n")
+            
             action_data = self._parse_response(response.completion)
+            print(f"📋 Parsed JSON: {action_data}")
+            
             action = Action(**action_data)
             
-            # Validate navigate action has URL
-            if action.type == "navigate" and not action.url:
-                print(f"Warning: Navigate action missing URL. Response was: {response.completion}")
-                # Default to Google as fallback
-                action.url = "https://www.google.com"
-                action.reasoning = f"Fallback: {action.reasoning or 'Navigate action was missing URL'}"
+            # Log all navigate actions with their URLs for debugging
+            if action.type == "navigate":
+                print(f"🔍 Navigate action parsed: url='{action.url}'")
+                if not action.url:
+                    print(f"⚠️  WARNING: Navigate action missing URL!")
+                    print(f"📄 Full LLM response: {response.completion[:500]}")
+                    # Default to Google as fallback
+                    action.url = "https://www.google.com"
+                    action.reasoning = f"Fallback: {action.reasoning or 'Navigate action was missing URL'}"
                 
         except Exception as e:
             print(f"Warning: Failed to parse action: {e}")

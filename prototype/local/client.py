@@ -22,6 +22,7 @@ class LocalBrowserClient:
         self.browser: Optional[Browser] = None
         self.headless = headless
         self.step_number = 0
+        self._element_cache = {}  # Cache elements by index for clicking
         
     async def start(self):
         """Initialize the browser."""
@@ -54,9 +55,29 @@ class LocalBrowserClient:
         print(f"\n🎯 Task: {task}")
         print(f"🌐 Starting URL: {url}\n")
         
-        # Navigate to initial URL
-        page = await self.browser.new_page(url)
-        await asyncio.sleep(1)  # Wait for page load
+        # Create new page
+        page = await self.browser.new_page()
+        
+        # Navigate to initial URL if provided
+        if url:
+            print(f"🚀 Navigating to: {url}")
+            try:
+                await page.goto(url)
+                await asyncio.sleep(4)  # Wait for page load and JS rendering
+                current_url = await page.get_url()
+                title = await page.get_title()
+                
+                # Check if page is empty or connection refused
+                if title == "Empty Tab" or not title:
+                    print(f"⚠️  Warning: Page appears empty (title: '{title}')")
+                    print(f"   Make sure a web server is running at {url}")
+                    print(f"   Try using a real website like https://example.com instead")
+                else:
+                    print(f"✓ Page loaded: {current_url} - Title: {title}")
+            except Exception as e:
+                print(f"❌ Failed to load page: {e}")
+                print(f"   Make sure a web server is running at {url}")
+                raise
         
         for step in range(max_steps):
             self.step_number = step + 1
@@ -67,6 +88,15 @@ class LocalBrowserClient:
             # 1. Capture current browser state
             print("📸 Capturing browser state...")
             state = await self._capture_state(page)
+            
+            # Debug output
+            print(f"   Title: {state.title}")
+            print(f"   DOM elements: {len(state.dom_elements)}")
+            
+            # Check if we're stuck on empty pages (but give the agent a chance to navigate)
+            if state.title == "Empty Tab" and not state.dom_elements:
+                print(f"⚠️  Warning: Page is empty with no interactive elements")
+                print(f"   Current URL: {state.url}")
             
             # 2. Send to server and get action
             print("🚀 Sending to server...")
@@ -110,52 +140,72 @@ class LocalBrowserClient:
             
     async def _capture_state(self, page) -> BrowserState:
         """Capture current browser state."""
-        # Get DOM elements using Browser-Use's browser state API
-        state = await self.browser.get_browser_state_summary()
+        # Wait a moment for any dynamic content
+        await asyncio.sleep(1.0)
         
-        # Convert selector map to simple element list
+        # Get current URL and title directly from the page
+        current_url = await page.get_url()
+        title = await page.get_title()
+        
+        # Clear element cache for new state
+        self._element_cache = {}
+        
+        # Get interactive elements using CSS selectors (proper Actor API)
         dom_elements = []
-        if state.dom_state and state.dom_state.selector_map:
-            # Handle both dict and object types
-            selector_map = state.dom_state.selector_map
-            if isinstance(selector_map, dict):
-                items = selector_map.items()
-            else:
-                items = selector_map.selector_map.items()
+        try:
+            # Get all common interactive elements
+            selectors = [
+                'a',  # links
+                'button',  # buttons
+                'input',  # inputs
+                'select',  # dropdowns
+                '[onclick]',  # clickable elements
+                '[role="button"]',  # ARIA buttons
+                'textarea',  # text areas
+            ]
             
-            for index, element in items:
-                # Handle both dict and object element types
-                if isinstance(element, dict):
-                    dom_elements.append({
-                        "index": index,
-                        "tag": element.get("tag_name", ""),
-                        "text": element.get("text", "")[:100],
-                        "attributes": element.get("attributes", {}),
-                        "xpath": element.get("xpath", ""),
-                    })
-                else:
-                    # EnhancedDOMTreeNode object
-                    text = ""
-                    if hasattr(element, 'get_all_children_text'):
-                        text = element.get_all_children_text()[:100]
-                    elif hasattr(element, 'node_value'):
-                        text = element.node_value[:100] if element.node_value else ""
-                    
-                    dom_elements.append({
-                        "index": index,
-                        "tag": element.tag_name if hasattr(element, 'tag_name') else element.node_name.lower(),
-                        "text": text,
-                        "attributes": element.attributes or {},
-                        "xpath": element.xpath if hasattr(element, 'xpath') else "",
-                    })
+            for selector in selectors:
+                elements = await page.get_elements_by_css_selector(selector)
+                for idx, element in enumerate(elements):
+                    try:
+                        # Get element info
+                        info = await element.get_basic_info()
+                        text = await element.evaluate('() => this.innerText || this.textContent || ""')
+                        
+                        # Create a unique index
+                        element_index = len(dom_elements)
+                        
+                        # Cache the actual Element object for later use
+                        self._element_cache[element_index] = element
+                        
+                        dom_elements.append({
+                            "index": element_index,
+                            "tag": info.get('nodeName', '').lower(),
+                            "text": text[:100] if text else "",
+                            "attributes": info.get('attributes', {}),
+                            "xpath": "",  # Not available via Actor API
+                            "_backend_node_id": info.get('backendNodeId'),  # Store for later use
+                        })
+                    except Exception as e:
+                        # Skip elements that fail to process
+                        continue
+            
+            print(f"   DEBUG - Extracted {len(dom_elements)} interactive elements")
+            
+        except Exception as e:
+            print(f"   DEBUG - Error extracting elements: {e}")
         
-        # Take screenshot (already available in state)
-        screenshot_b64 = state.screenshot or ""
+        # Take screenshot
+        screenshot_b64 = ""
+        try:
+            screenshot_b64 = await page.screenshot(format='png')
+        except Exception as e:
+            print(f"   DEBUG - Error taking screenshot: {e}")
         
         return BrowserState(
-            url=state.url,
-            title=state.title or "",
-            html="",  # We don't need full HTML, using DOM elements instead
+            url=current_url,
+            title=title,
+            html="",  # Not needed when we have DOM elements
             screenshot=screenshot_b64,
             dom_elements=dom_elements,
             viewport={"width": 1280, "height": 720},
@@ -183,14 +233,20 @@ class LocalBrowserClient:
         if action.type == "click":
             if action.index is None:
                 raise ValueError("Click action requires index")
-            element = await page.get_element_by_index(action.index)
+            # Get element from cache
+            if action.index not in self._element_cache:
+                raise ValueError(f"Element at index {action.index} not found in cache")
+            element = self._element_cache[action.index]
             await element.click()
             await asyncio.sleep(0.5)
             
         elif action.type == "input":
             if action.index is None or action.text is None:
                 raise ValueError("Input action requires index and text")
-            element = await page.get_element_by_index(action.index)
+            # Get element from cache
+            if action.index not in self._element_cache:
+                raise ValueError(f"Element at index {action.index} not found in cache")
+            element = self._element_cache[action.index]
             await element.fill(action.text)
             await asyncio.sleep(0.3)
             
@@ -198,7 +254,7 @@ class LocalBrowserClient:
             if action.url is None:
                 raise ValueError("Navigate action requires url")
             await page.goto(action.url)
-            await asyncio.sleep(1)
+            await asyncio.sleep(3)  # Extra wait for JS frameworks like Next.js
             
         elif action.type == "scroll":
             direction = action.direction or "down"
