@@ -123,6 +123,9 @@ class LocalBrowserClient:
                 print(f"\n✅ Task completed!")
                 if response.message:
                     print(f"   {response.message}")
+                
+                # Generate UX report
+                await self._generate_report(task)
                 break
                 
             # 6. Execute action
@@ -137,6 +140,27 @@ class LocalBrowserClient:
             await asyncio.sleep(0.5)
         else:
             print(f"\n⚠️  Reached maximum steps ({max_steps})")
+            # Generate report even if max steps reached
+            await self._generate_report(task)
+    
+    async def _generate_report(self, task: str):
+        """Request and save UX analysis report from server."""
+        try:
+            print(f"\n📊 Generating UX Analysis Report...")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.server_url}/report",
+                    json={"task": task}
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                if result.get("success"):
+                    print(f"✓ {result.get('message')}")
+                else:
+                    print(f"⚠️  {result.get('message')}")
+        except Exception as e:
+            print(f"⚠️  Could not generate report: {e}")
             
     async def _capture_state(self, page) -> BrowserState:
         """Capture current browser state."""

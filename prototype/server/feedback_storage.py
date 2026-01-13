@@ -97,3 +97,101 @@ class FeedbackStorage:
         except Exception as e:
             print(f"Warning: Failed to load feedback from {self.storage_path}: {e}")
             self.feedback_list = []
+    
+    def generate_report(self, task: str, output_path: Optional[Path] = None) -> str:
+        """
+        Generate a comprehensive UX analysis report.
+        
+        Args:
+            task: The task that was performed
+            output_path: Optional path to save the report. If None, returns report as string only.
+        
+        Returns:
+            The report as a string
+        """
+        if not self.feedback_list:
+            return "No feedback data available to generate report."
+        
+        # Build report
+        report_lines = []
+        report_lines.append("=" * 80)
+        report_lines.append("UX SPECIALIST ANALYSIS REPORT")
+        report_lines.append("=" * 80)
+        report_lines.append(f"\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        report_lines.append(f"Task: {task}")
+        report_lines.append(f"Total Steps Analyzed: {len(self.feedback_list)}")
+        report_lines.append("")
+        
+        # Summary statistics
+        summary = self.get_summary()
+        report_lines.append("-" * 80)
+        report_lines.append("SUMMARY STATISTICS")
+        report_lines.append("-" * 80)
+        report_lines.append(f"Average Confidence Score: {summary['average_confidence']:.2f}")
+        report_lines.append(f"Unique URLs Visited: {summary['unique_urls']}")
+        report_lines.append(f"Priority Distribution:")
+        for priority, count in summary['priority_distribution'].items():
+            report_lines.append(f"  - {priority.capitalize()}: {count}")
+        report_lines.append("")
+        
+        # Detailed feedback per step
+        report_lines.append("-" * 80)
+        report_lines.append("DETAILED STEP-BY-STEP ANALYSIS")
+        report_lines.append("-" * 80)
+        
+        for idx, feedback in enumerate(self.feedback_list, 1):
+            report_lines.append(f"\n{'='*80}")
+            report_lines.append(f"STEP {idx}")
+            report_lines.append(f"{'='*80}")
+            report_lines.append(f"URL: {feedback.url}")
+            report_lines.append(f"Confidence: {feedback.confidence:.2f}")
+            report_lines.append(f"Priority: {feedback.priority.upper()}")
+            report_lines.append("")
+            report_lines.append("RECOMMENDATION:")
+            report_lines.append(f"  {feedback.recommendation}")
+            report_lines.append("")
+            
+            if feedback.issues:
+                report_lines.append("ISSUES IDENTIFIED:")
+                for issue in feedback.issues:
+                    report_lines.append(f"  • {issue}")
+                report_lines.append("")
+        
+        # Key insights
+        report_lines.append("\n" + "=" * 80)
+        report_lines.append("KEY INSIGHTS")
+        report_lines.append("=" * 80)
+        
+        # Find high-confidence recommendations
+        high_conf = [f for f in self.feedback_list if f.confidence >= 0.9]
+        if high_conf:
+            report_lines.append(f"\n✓ {len(high_conf)} high-confidence recommendations (≥0.9)")
+        
+        # Find all unique issues
+        all_issues = set()
+        for f in self.feedback_list:
+            all_issues.update(f.issues)
+        
+        if all_issues:
+            report_lines.append(f"\n⚠ {len(all_issues)} unique UX issues identified across all steps")
+        
+        # Conclusion
+        report_lines.append("\n" + "=" * 80)
+        report_lines.append("CONCLUSION")
+        report_lines.append("=" * 80)
+        final_feedback = self.feedback_list[-1]
+        report_lines.append(f"Final URL: {final_feedback.url}")
+        report_lines.append(f"Final Recommendation: {final_feedback.recommendation}")
+        report_lines.append("")
+        
+        # Join all lines
+        report = "\n".join(report_lines)
+        
+        # Save to file if path provided
+        if output_path:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(report)
+            print(f"✓ Report saved to: {output_path}")
+        
+        return report

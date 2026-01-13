@@ -1,6 +1,7 @@
 """FastAPI server that coordinates Navigation and UX Specialist agents."""
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -172,6 +173,29 @@ async def get_feedback():
     
     return {
         "feedback": [f.model_dump() for f in feedback_storage.get_all()]
+    }
+
+
+@app.post("/report")
+async def generate_report(request: dict):
+    """Generate and save UX analysis report."""
+    if not feedback_storage:
+        raise HTTPException(status_code=500, detail="Storage not initialized")
+    
+    task = request.get("task", "Unknown task")
+    
+    # Generate report
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_filename = f"ux_report_{timestamp}.txt"
+    report_path = Path("reports") / report_filename
+    
+    report_content = feedback_storage.generate_report(task=task, output_path=report_path)
+    
+    return {
+        "success": True,
+        "message": f"Report saved to {report_path}",
+        "report_path": str(report_path),
+        "preview": report_content[:500] + "..." if len(report_content) > 500 else report_content
     }
 
 
