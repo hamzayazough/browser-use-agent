@@ -33,19 +33,65 @@ prototype/
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Set Up Virtual Environment
 
 ```bash
-# From the prototype directory
-cd prototype
+(browser-use) hamza@Hamzas-MacBook-Pro prototype % python3 local/run.py --url "http://localhost:3000" --task "find the Terms of Service page"
+✓ Browser started (headless=False)
+
+🎯 Task: find the Terms of Service page
+🌐 Starting URL: http://localhost:3000
+
+🚀 Navigating to: http://localhost:3000
+✓ Page loaded: http://localhost:3000/ - Title: TutorFroggy - AI-Powered Learning for Kids
+
+============================================================
+Step 1/50
+============================================================
+📸 Capturing browser state...
+   Title: TutorFroggy - AI-Powered Learning for Kids
+   DOM elements: 0
+🚀 Sending to server...
+
+💡 UX Feedback:
+   Recommendation: The site has consistently failed to load content across the root domain, '/terms-of-service', '/signin', and now the current empty state. The site is fundamentally broken or inaccessible. Conclude that the Terms of Service cannot be found on this domain and stop further navigation attempts.
+   Confidence: 1.00
+   Issues: The page is completely empty, rendering no content, which makes the site unusable., Lack of any interactive elements (links, buttons) prevents navigation., The page title ('TutorFroggy - AI-Powered Learning for Kids') suggests a functional site, but the empty content contradicts this, creating user confusion and frustration., The consistent failure to load content across multiple attempted URLs indicates a fundamental technical failure or inaccessibility, completely blocking the task.
+
+🎬 Action: done
+   Reasoning: The site has consistently failed to load content across multiple attempts and common URLs (root, /terms-of-service, /terms, /signin). The UX specialist strongly recommends concluding that the site is fundamentally broken or inaccessible at this address. Since the task cannot be completed due to technical failure of the target website, the agent must stop and mark the task as complete (failed).
+
+✅ Task completed!
+   Step 1 completed
+INFO     [BrowserSession] 📢 on_BrowserStopEvent - Calling reset() (force=False, keep_alive=None)
+INFO     [BrowserSession] [SessionManager] Cleared all owned data (targets, sessions, mappings)
+INFO     [BrowserSession] ✅ Browser session reset complete
+INFO     [BrowserSession] ✅ Browser session reset complete
+✓ Browser stopped
+(browser-use) hamza@Hamzas-MacBook-Pro prototype % cd prototype
+
+# Create a virtual environment using uv (recommended)
+uv venv --python 3.11
+
+# Activate the virtual environment
+# On macOS/Linux:
+source .venv/bin/activate
+
+# On Windows:
+# .venv\Scripts\activate
+```
+
+### 2. Install Dependencies
+
+```bash
+# Install all required packages
 uv pip install -r requirements.txt
 ```
 
-### 2. Set Up Environment
+### 3. Set Up Environment
 
 ```bash
 # Create .env file in prototype/
-cd prototype
 cat > .env << EOF
 # Choose your LLM provider
 BROWSER_USE_API_KEY=your-key-here
@@ -56,21 +102,26 @@ ANTHROPIC_API_KEY=your-key-here
 EOF
 ```
 
-### 3. Start the Server
+### 4. Start the Server
 
 ```bash
-# Terminal 1: Start the cloud server
-cd prototype/server
+# Start the cloud server (make sure venv is activated)
+cd server
 python main.py
 
 # Server will run on http://localhost:8000
 ```
 
-### 4. Run the Client
+### 5. Run the Client
 
 ```bash
-# Terminal 2: Run the browser client
-cd prototype/local
+# In a new terminal, activate the venv again:
+cd prototype
+source .venv/bin/activate  # On macOS/Linux
+# or .venv\Scripts\activate on Windows
+
+# Run the browser client
+cd local
 python run.py --url "http://localhost:3000" --task "search for the cheapest product"
 
 # Or with more options:
@@ -95,7 +146,6 @@ python local/run.py \
 python local/run.py \
   --url "http://localhost:3000" \
   --task "search for the cheapest product" \
-  --server "http://your-cloud-server.com:8000"
 ```
 
 ### Headless Mode
