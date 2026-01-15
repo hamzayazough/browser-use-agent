@@ -20,6 +20,7 @@ from app.schemas.curriculum_discovery import (
     LicenseType,
 )
 from app.services.scoring_service import ScoringService
+from app.services.known_source_service import KnownSourceService
 from app.utils.browser_use_helpers import BrowserUseHelper
 from app.utils.job_logger import JobLogger, JobType
 from app.repositories.source_record_repository import SourceRecordRepository
@@ -58,6 +59,7 @@ class CurriculumDiscoveryService:
             browser_use_api_key=browser_use_api_key
         )
         self.scoring_service = ScoringService()
+        self.known_source_service = KnownSourceService(db_connection)
         self.source_repo = SourceRecordRepository(db_connection)
         self.job_logger = JobLogger()
     
@@ -403,16 +405,62 @@ class CurriculumDiscoveryService:
         """
         Step 3: Search for Open Educational Resources
         
-        Uses Browser-Use agent to search for OER materials with intelligent coverage
+        OPTIMIZED: First checks cached known sources, then falls back to agent search
         
         Args:
             topics: Curriculum topics
             request: Discovery request
+            job_id: Job ID for logging
             
         Returns:
             List of discovered sources
         """
         all_sources = []
+        
+        # OPTIMIZATION: Get cached known sources first
+        logger.info("Checking cached known sources...")
+        cached_sources = await self.known_source_service.get_cached_sources(request)
+        
+        if cached_sources:
+            logger.info(f"✅ Found {len(cached_sources)} cached known sources - skipping agent search!")
+            
+            # Assign cached sources to topics (1 source per topic)
+            for i, topic in enumerate(topics):
+                if i < len(cached_sources):
+                    source = cached_sources[i]
+                    
+                    # Set topic and objectives
+                    source.topics_covered = [topic.topic_id]
+                    source.objectives_addressed = [obj.objective_id for obj in topic.objectives]
+                    
+                    # Score the source
+                    source.scoring = self.scoring_service.score_source(
+                        source=source,
+                        topics=topics
+                    )
+                    
+                    all_sources.append(source)
+                    
+                    # Log cached source usage
+                    self.job_logger.log_oer_search(
+                        job_id,
+                        topic_name=topic.name,
+                        sources_found=1,
+                        sources=[
+                            {
+                                "title": source.title,
+                                "url": source.url,
+                                "publisher": source.publisher,
+                                "content_format": source.content_format,
+                                "cached": True
+                            }
+                        ]
+                    )
+            
+            return all_sources
+        
+        # FALLBACK: Use agent search if no cached sources (EXPENSIVE)
+        logger.warning("No cached sources found - using agent search (this will be slow and costly)")
         
         # Search for sources for ALL topics (agent decides coverage)
         for topic in topics:
@@ -421,7 +469,7 @@ class CurriculumDiscoveryService:
             # Count objectives for this topic
             num_objectives = len(topic.objectives)
             
-            # Create intelligent search task
+            # Create simplified search task (OPTIMIZED: only 1 source per topic)
             task = f"""
             Search for Open Educational Resources:
             
@@ -432,42 +480,29 @@ class CurriculumDiscoveryService:
             
             Instructions:
             1. Search for OER materials from trusted sources:
-               - Khan Academy (khanacademy.org) - usually has HTML/video content
-               - Government education sites (.gov, .edu) - often PDFs
-               - OpenStax, OER Commons, CK-12 if relevant
+               - Khan Academy (khanacademy.org) - priority #1
+               - Government education sites (.gov, .edu) - priority #2
+               - OpenStax, CK-12 if relevant
             
-            2. For each resource found, extract:
+            2. Find ONLY 1 high-quality source that covers this topic
+            
+            3. For the source, extract:
                - Title
                - URL
                - Publisher
                - License type (if visible: CC-BY, CC-BY-SA, CC-BY-NC-SA, etc.)
-               - Content format (PDF, HTML, VIDEO, etc.)
+               - Content format (PDF, HTML, VIDEO - avoid VIDEO)
                - Brief description
             
-            3. INTELLIGENT COVERAGE:
-               - If topic has {num_objectives} objectives, find enough sources to cover them ALL
-               - For compound topics (e.g., "Measurement and Data"), ensure BOTH components are covered
-               - Minimum: 2 sources per topic
-               - Maximum: 5 sources per topic
-               - Before stopping, verify all {num_objectives} objectives have at least one source
-               - If sources are narrow/incomplete, search additional sources
-               - Prioritize quality over quantity, but completeness over speed
+            4. Prioritize:
+               - Khan Academy first (fast HTML content)
+               - Government PDFs second
+               - Avoid video sources (expensive to process)
             
-            4. COMPREHENSIVE SEARCH STRATEGY:
-               - Start with Khan Academy for the full topic
-               - If topic has multiple components (e.g., "Measurement AND Data"), search each component separately
-               - Check multiple units/sections within the same platform
-               - Only stop when you're confident all objectives are addressed
-            
-            5. For licenses: If not explicitly stated, assume:
-               - Khan Academy: CC-BY-NC-SA
-               - Government (.gov): CUSTOM_OER or PUBLIC-DOMAIN
-               - University (.edu): Check their license page if available
-            
-            6. Use 'done' action when you have sufficient coverage of ALL {num_objectives} objectives
+            5. Use 'done' action when you found 1 good source
             """
             
-            # Run agent with reasonable max_steps
+            # Run agent with reduced max_steps (OPTIMIZED: 15 instead of 30)
             from pydantic import BaseModel
             
             class SourcesOutput(BaseModel):
@@ -476,36 +511,37 @@ class CurriculumDiscoveryService:
             result = await self.browser_helper.extract_structured_data(
                 task=task,
                 output_model=SourcesOutput,
-                max_steps=30  # Reasonable limit: not too long, not too short
+                max_steps=15  # OPTIMIZED: Reduced from 30
             )
             
             if result and result.sources:
-                # Set topic and objectives for each source
-                for source in result.sources:
-                    source.topics_covered = [topic.topic_id]
-                    source.objectives_addressed = [obj.objective_id for obj in topic.objectives[:3]]
-                    
-                    # Score the source
-                    source.scoring = self.scoring_service.score_source(
-                        source=source,
-                        topics=topics
-                    )
+                # Take only the first source (OPTIMIZED: limit 1)
+                source = result.sources[0]
                 
-                all_sources.extend(result.sources)
+                # Set topic and objectives
+                source.topics_covered = [topic.topic_id]
+                source.objectives_addressed = [obj.objective_id for obj in topic.objectives]
+                
+                # Score the source
+                source.scoring = self.scoring_service.score_source(
+                    source=source,
+                    topics=topics
+                )
+                
+                all_sources.append(source)
                 
                 # Log OER search results for this topic
                 self.job_logger.log_oer_search(
                     job_id,
                     topic_name=topic.name,
-                    sources_found=len(result.sources),
+                    sources_found=1,
                     sources=[
                         {
-                            "title": src.title,
-                            "url": src.url,
-                            "publisher": src.publisher,
-                            "content_format": src.content_format
+                            "title": source.title,
+                            "url": source.url,
+                            "publisher": source.publisher,
+                            "content_format": source.content_format
                         }
-                        for src in result.sources
                     ]
                 )
             
