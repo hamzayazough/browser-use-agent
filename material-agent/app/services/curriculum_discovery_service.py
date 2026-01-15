@@ -268,7 +268,7 @@ class CurriculumDiscoveryService:
         ]
         search_query = " ".join(filter(None, search_terms))
         
-        # Create agent task
+        # Create agent task (OPTIMIZED: only 1-2 docs instead of 5)
         task = f"""
         Search for official curriculum documents:
         
@@ -287,11 +287,13 @@ class CurriculumDiscoveryService:
            - Publisher
            - Publication date (if available)
            - PDF link (if available)
-        5. Return top 5 most authoritative documents
+        5. OPTIMIZED: Return only the TOP 1-2 MOST authoritative documents (not 5)
+           - Prioritize the single most official source
+           - Only add a second if it provides essential additional context
         6. Use 'done' action when complete
         """
         
-        # Run agent with structured output
+        # Run agent with structured output (OPTIMIZED: reduced max_steps 50 → 30)
         from pydantic import BaseModel
         
         class DocumentsOutput(BaseModel):
@@ -300,14 +302,17 @@ class CurriculumDiscoveryService:
         result = await self.browser_helper.extract_structured_data(
             task=task,
             output_model=DocumentsOutput,
-            max_steps=50
+            max_steps=30  # OPTIMIZED: Reduced from 50
         )
         
         if result and result.documents:
+            # OPTIMIZED: Limit to max 2 documents
+            limited_docs = result.documents[:2]
+            
             # Set authority level to OFFICIAL_GOVERNMENT
-            for doc in result.documents:
+            for doc in limited_docs:
                 doc.authority_level = AuthorityLevel.OFFICIAL_GOVERNMENT
-            return result.documents
+            return limited_docs
         
         return []
     
