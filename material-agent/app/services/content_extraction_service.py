@@ -1,6 +1,104 @@
 """
 Content Extraction Service (Job 2)
-Extract content from OER sources and create knowledge chunks
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Logs are kept indefinitely for audit purposes. You can manually delete old logs if needed.## Log Retention```cat curriculum_discovery_20260115_142530.log | jq '.stages'# View stagescat curriculum_discovery_20260115_142530.log | jq '.summary'# View job summarycat curriculum_discovery_20260115_142530.log | jq# View specific jobcat $(ls -t *.log | head -1) | jq# View latest log```bashYou can view logs using any JSON viewer or text editor:## Viewing Logs2. `embedding_generation` - Embedding generation statistics1. `extract_{source_id}` - Content extraction from each source### Job 2: Content Extraction4. `source_vetting` - Source scoring and filtering3. `oer_search_{topic}` - OER sources found for each topic2. `topics_extraction` - Topics and objectives extracted1. `document_discovery` - Official curriculum documents found### Job 1: Curriculum Discovery## Stages Logged```}  }    "average_source_score": 13.2    "sources_vetted": 9,    "sources_discovered": 15,    "total_objectives": 28,    "total_topics": 5,    "curriculum_id": "us_ca_mathematics_4_en",  "summary": {  ],    ...    },      }        "topics": [...]        "count": 5,      "data": {      "timestamp": "2026-01-15T14:28:30.123456",      "status": "COMPLETED",      "stage_name": "topics_extraction",    {    },      }        "documents": [...]        "count": 5,      "data": {      "timestamp": "2026-01-15T14:26:15.123456",      "status": "COMPLETED",      "stage_name": "document_discovery",    {  "stages": [  },    "language": "en"    "grade": "4",    "subject": "Mathematics",    "region": "CA",    "country": "US",  "request": {  "duration_seconds": 495.67,  "end_time": "2026-01-15T14:33:45.789012",  "start_time": "2026-01-15T14:25:30.123456",  "status": "COMPLETED",  "job_type": "curriculum_discovery",  "job_id": "curriculum_discovery_20260115_142530",{```json## Log Structure- `publish_pack` - Job 4: Publish content pack- `validation_coverage` - Job 3: Validate content coverage- `content_extraction` - Job 2: Extract content and create knowledge chunks- `curriculum_discovery` - Job 1: Discover curricula and curate OER sources## Job TypesExample: `curriculum_discovery_20260115_142530.log`Each job creates a JSON log file named: `{job_type}_{timestamp}.log`## Log File FormatThis directory contains detailed logs for all job executions.Extract content from OER sources and create knowledge chunks
 """
 import asyncio
 import logging
@@ -20,6 +118,7 @@ from app.schemas.content_extraction import (
 from app.services.embedding_service import EmbeddingService
 from app.services.chunking_service import ChunkingService
 from app.services.extractors import HTMLExtractor, PDFExtractor, VideoExtractor
+from app.utils.job_logger import JobLogger, JobType
 from app.repositories.source_record_repository import SourceRecordRepository
 from app.repositories.knowledge_chunk_repository import KnowledgeChunkRepository
 from app.models.knowledge_chunk import KnowledgeChunkModel
@@ -73,6 +172,9 @@ class ContentExtractionService:
             PDFExtractor(),
             VideoExtractor()
         ]
+        
+        # Job logger
+        self.job_logger = JobLogger()
     
     async def extract_content_from_sources(
         self,
@@ -89,6 +191,16 @@ class ContentExtractionService:
         """
         start_time = datetime.utcnow()
         
+        # Start job logging
+        job_id = self.job_logger.start_job(
+            JobType.CONTENT_EXTRACTION,
+            {
+                "curriculum_id": request.curriculum_id,
+                "source_ids": request.source_ids,
+                "max_sources": request.max_sources
+            }
+        )
+        
         try:
             logger.info(f"Starting content extraction for curriculum: {request.curriculum_id}")
             
@@ -97,6 +209,12 @@ class ContentExtractionService:
             sources = await self._get_sources(request)
             
             if not sources:
+                self.job_logger.complete_job(
+                    job_id,
+                    success=False,
+                    summary={},
+                    error="No sources found for extraction"
+                )
                 return ContentExtractionResult(
                     success=False,
                     curriculum_id=request.curriculum_id,
@@ -107,7 +225,7 @@ class ContentExtractionService:
             
             # Step 2: Extract content from each source
             logger.info("Step 2: Extracting content from sources...")
-            extraction_results = await self._extract_from_sources(sources)
+            extraction_results = await self._extract_from_sources(sources, job_id)
             
             # Count successes
             successful_extractions = [r for r in extraction_results if r.success]
@@ -119,6 +237,29 @@ class ContentExtractionService:
             # Log embedding statistics
             embedding_stats = self.embedding_service.get_usage_stats()
             logger.info(f"Embedding stats: {embedding_stats}")
+            
+            # Log embeddings
+            self.job_logger.log_embeddings(
+                job_id,
+                chunks_processed=total_chunks,
+                embeddings_generated=embedding_stats["total_api_calls"],
+                api_calls=embedding_stats["total_api_calls"],
+                estimated_cost=embedding_stats["estimated_cost_usd"]
+            )
+            
+            # Complete job
+            self.job_logger.complete_job(
+                job_id,
+                success=True,
+                summary={
+                    "curriculum_id": request.curriculum_id,
+                    "sources_processed": len(sources),
+                    "sources_successful": len(successful_extractions),
+                    "total_chunks_created": total_chunks,
+                    "embeddings_generated": embedding_stats["total_api_calls"],
+                    "estimated_cost_usd": round(embedding_stats["estimated_cost_usd"], 4)
+                }
+            )
             
             logger.info(
                 f"✅ Extraction complete: {len(successful_extractions)}/{len(sources)} "
@@ -139,6 +280,14 @@ class ContentExtractionService:
         except Exception as e:
             logger.error(f"Content extraction failed: {str(e)}", exc_info=True)
             duration = (datetime.utcnow() - start_time).total_seconds()
+            
+            # Log failure
+            self.job_logger.complete_job(
+                job_id,
+                success=False,
+                summary={},
+                error=str(e)
+            )
             
             return ContentExtractionResult(
                 success=False,
@@ -192,7 +341,8 @@ class ContentExtractionService:
     
     async def _extract_from_sources(
         self,
-        sources: List[SourceExtractionTask]
+        sources: List[SourceExtractionTask],
+        job_id: str
     ) -> List[SourceExtractionResult]:
         """
         Extract content from multiple sources
@@ -212,6 +362,16 @@ class ContentExtractionService:
             
             result = await self._extract_from_single_source(source)
             results.append(result)
+            
+            # Log extraction result
+            self.job_logger.log_content_extraction(
+                job_id,
+                source_id=source.source_id,
+                source_url=source.url,
+                success=result.success,
+                chunks_created=result.chunks_created,
+                error=result.error_message
+            )
             
             # Rate limiting
             if i < len(sources) - 1:

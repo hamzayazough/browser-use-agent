@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from app.api.content_packs import router as content_packs_router
+from app.api.logs import router as logs_router
 from app.database import connect_to_mongo, close_mongo_connection
 
 # Initialize FastAPI app
@@ -36,6 +37,7 @@ async def shutdown_event():
 
 # Include routers
 app.include_router(content_packs_router)
+app.include_router(logs_router)
 
 
 @app.get("/")

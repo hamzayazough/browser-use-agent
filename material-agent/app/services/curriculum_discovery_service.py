@@ -21,6 +21,7 @@ from app.schemas.curriculum_discovery import (
 )
 from app.services.scoring_service import ScoringService
 from app.utils.browser_use_helpers import BrowserUseHelper
+from app.utils.job_logger import JobLogger, JobType
 from app.repositories.source_record_repository import SourceRecordRepository
 from app.models.source_record import SourceRecordModel
 
@@ -58,6 +59,7 @@ class CurriculumDiscoveryService:
         )
         self.scoring_service = ScoringService()
         self.source_repo = SourceRecordRepository(db_connection)
+        self.job_logger = JobLogger()
     
     async def discover_curriculum(
         self,
@@ -74,6 +76,18 @@ class CurriculumDiscoveryService:
         """
         start_time = datetime.utcnow()
         
+        # Start job logging
+        job_id = self.job_logger.start_job(
+            JobType.CURRICULUM_DISCOVERY,
+            {
+                "country": request.country,
+                "region": request.region,
+                "subject": request.subject,
+                "grade": request.grade,
+                "language": request.language
+            }
+        )
+        
         try:
             logger.info(f"Starting curriculum discovery: {request.subject} - {request.grade}")
             
@@ -82,24 +96,63 @@ class CurriculumDiscoveryService:
             official_docs = await self._discover_curriculum_documents(request)
             
             if not official_docs:
+                self.job_logger.complete_job(
+                    job_id,
+                    success=False,
+                    summary={},
+                    error="No official curriculum documents found"
+                )
                 return CurriculumDiscoveryResult(
                     success=False,
                     error_message="No official curriculum documents found"
                 )
+            
+            # Log discovered documents
+            self.job_logger.log_discovery_documents(
+                job_id,
+                [
+                    {
+                        "title": doc.title,
+                        "url": doc.url,
+                        "publisher": doc.publisher,
+                        "publication_date": doc.publication_date
+                    }
+                    for doc in official_docs
+                ]
+            )
             
             # Step 2: Extract topics and objectives from documents
             logger.info("Step 2: Extracting topics and objectives...")
             topics = await self._extract_topics_objectives(official_docs, request)
             
             if not topics:
+                self.job_logger.complete_job(
+                    job_id,
+                    success=False,
+                    summary={},
+                    error="Failed to extract curriculum structure"
+                )
                 return CurriculumDiscoveryResult(
                     success=False,
                     error_message="Failed to extract curriculum structure"
                 )
             
+            # Log extracted topics
+            self.job_logger.log_topics_extraction(
+                job_id,
+                [
+                    {
+                        "topic_id": topic.topic_id,
+                        "name": topic.name,
+                        "objectives": [obj.objective_id for obj in topic.objectives]
+                    }
+                    for topic in topics
+                ]
+            )
+            
             # Step 3: Search for OER sources
             logger.info("Step 3: Searching for OER sources...")
-            discovered_sources = await self._search_oer_sources(topics, request)
+            discovered_sources = await self._search_oer_sources(topics, request, job_id)
             
             # Step 4: Score and filter sources
             logger.info("Step 4: Scoring and filtering sources...")
@@ -107,6 +160,21 @@ class CurriculumDiscoveryService:
                 discovered_sources,
                 minimum_total_score=12,
                 minimum_license_score=3
+            )
+            
+            # Log vetting results
+            self.job_logger.log_source_vetting(
+                job_id,
+                total_sources=len(discovered_sources),
+                vetted_sources=len(vetted_sources),
+                vetted_list=[
+                    {
+                        "title": src.title,
+                        "score": src.scoring.total,
+                        "source_type": src.source_type.value
+                    }
+                    for src in vetted_sources
+                ]
             )
             
             # Step 5: Save vetted sources to MongoDB
@@ -132,6 +200,20 @@ class CurriculumDiscoveryService:
             
             duration = (datetime.utcnow() - start_time).total_seconds()
             
+            # Log job completion
+            self.job_logger.complete_job(
+                job_id,
+                success=True,
+                summary={
+                    "curriculum_id": curriculum_id,
+                    "total_topics": len(topics),
+                    "total_objectives": sum(len(t.objectives) for t in topics),
+                    "sources_discovered": len(discovered_sources),
+                    "sources_vetted": len(vetted_sources),
+                    "average_source_score": round(sum(s.scoring.total for s in vetted_sources) / len(vetted_sources), 2) if vetted_sources else 0
+                }
+            )
+            
             logger.info(f"✅ Discovery complete: {len(vetted_sources)} vetted sources in {duration:.2f}s")
             
             return CurriculumDiscoveryResult(
@@ -145,6 +227,14 @@ class CurriculumDiscoveryService:
         except Exception as e:
             logger.error(f"Curriculum discovery failed: {str(e)}", exc_info=True)
             duration = (datetime.utcnow() - start_time).total_seconds()
+            
+            # Log failure
+            self.job_logger.complete_job(
+                job_id,
+                success=False,
+                summary={},
+                error=str(e)
+            )
             
             return CurriculumDiscoveryResult(
                 success=False,
@@ -307,7 +397,8 @@ class CurriculumDiscoveryService:
     async def _search_oer_sources(
         self,
         topics: List[CurriculumTopic],
-        request: CurriculumDiscoveryRequest
+        request: CurriculumDiscoveryRequest,
+        job_id: str
     ) -> List[DiscoveredSource]:
         """
         Step 3: Search for Open Educational Resources
@@ -401,6 +492,22 @@ class CurriculumDiscoveryService:
                     )
                 
                 all_sources.extend(result.sources)
+                
+                # Log OER search results for this topic
+                self.job_logger.log_oer_search(
+                    job_id,
+                    topic_name=topic.name,
+                    sources_found=len(result.sources),
+                    sources=[
+                        {
+                            "title": src.title,
+                            "url": src.url,
+                            "publisher": src.publisher,
+                            "content_format": src.content_format
+                        }
+                        for src in result.sources
+                    ]
+                )
             
             # Small delay to avoid overwhelming the browser service
             await asyncio.sleep(1)
