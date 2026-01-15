@@ -10,11 +10,15 @@ class ScoringRubric(BaseModel):
     
     # Authority Scoring (0-5)
     authority_scores: Dict[str, int] = {
+        "OFFICIAL_CURRICULUM": 5,      # Official curriculum documents
         "OFFICIAL_GOVERNMENT": 5,      # Ministry of Education
-        "UNIVERSITY": 4,                # University OER
+        "UNIVERSITY_OER": 4,           # University OER
+        "UNIVERSITY": 4,                # University-published
         "EDUCATIONAL_NGO": 3,          # Non-profit education org
         "EDUCATIONAL_PLATFORM": 3,     # Khan Academy, Coursera
         "GOVERNMENT_RESOURCE": 4,      # Government websites
+        "NGO_CONTENT": 3,              # NGO content
+        "COMMUNITY_CONTENT": 2,        # Community-created
         "COMMUNITY": 2,                # Community-created
     }
     
