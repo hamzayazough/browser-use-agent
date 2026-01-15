@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import settings
 from app.api.content_packs import router as content_packs_router
+from app.database import connect_to_mongo, close_mongo_connection
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -20,6 +21,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Startup and shutdown events
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection on startup"""
+    await connect_to_mongo()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connection on shutdown"""
+    await close_mongo_connection()
 
 # Include routers
 app.include_router(content_packs_router)
