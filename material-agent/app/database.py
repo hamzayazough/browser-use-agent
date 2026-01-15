@@ -28,14 +28,9 @@ async def close_mongo_connection():
     """Close MongoDB connection"""
     logger.info("Closing MongoDB connection...")
     db.client.close()
-
-
-def get_database():
-    """Get database instance for dependency injection"""
-    return db.db
     logger.info("MongoDB connection closed")
 
 
 def get_database():
-    """Get database instance"""
+    """Get database instance for dependency injection"""
     return db.db
