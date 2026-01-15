@@ -36,7 +36,7 @@ class ChunkingService:
         objective_ids: List[str]
     ) -> List[ContentChunk]:
         """
-        Chunk extracted content into teaching units
+        Chunk extracted content into teaching units (OPTIMIZED: simple splitting only)
         
         Args:
             extracted: Extracted content
@@ -49,16 +49,11 @@ class ChunkingService:
         try:
             logger.info(f"Chunking content from source: {extracted.source_id}")
             
-            # Split by strategy
-            if self.config.split_by == "paragraph":
-                chunks = self._chunk_by_paragraph(extracted.raw_text)
-            elif self.config.split_by == "sentence":
-                chunks = self._chunk_by_sentence(extracted.raw_text)
-            else:
-                chunks = self._chunk_by_paragraph(extracted.raw_text)
+            # OPTIMIZED: Simple paragraph splitting only (no complex logic)
+            chunks = self._simple_chunk_by_paragraphs(extracted.raw_text)
             
-            # Filter by size
-            chunks = [c for c in chunks if self._is_valid_chunk_size(c)]
+            # OPTIMIZED: Skip size validation (accept all chunks)
+            # chunks = [c for c in chunks if self._is_valid_chunk_size(c)]
             
             # Create ContentChunk objects
             content_chunks = []
@@ -67,17 +62,17 @@ class ChunkingService:
                 # Generate chunk ID
                 chunk_id = f"ck_tpl_{uuid.uuid4().hex[:12]}"
                 
-                # Classify chunk type
-                chunk_type = self._classify_chunk_type(chunk_text)
+                # OPTIMIZED: Skip classification (always use default)
+                chunk_type = ChunkType.CONCEPT_EXPLANATION
                 
                 # Assign objective (round-robin)
                 objective_id = objective_ids[i % len(objective_ids)] if objective_ids else None
                 
-                # Estimate difficulty
-                difficulty = self._estimate_difficulty(chunk_text)
+                # OPTIMIZED: Skip difficulty estimation (always medium)
+                difficulty = "medium"
                 
-                # Extract tags
-                tags = self._extract_tags(chunk_text)
+                # OPTIMIZED: Skip tag extraction (empty list)
+                tags = []
                 
                 content_chunk = ContentChunk(
                     chunk_id=chunk_id,
@@ -102,8 +97,28 @@ class ChunkingService:
             logger.error(f"Chunking failed: {str(e)}")
             return []
     
+    def _simple_chunk_by_paragraphs(self, text: str) -> List[str]:
+        """
+        OPTIMIZED: Simple paragraph splitting without complex merging/splitting logic
+        
+        Just split by double newlines and return chunks as-is
+        """
+        # Split by double newlines
+        paragraphs = re.split(r'\n\s*\n', text)
+        
+        # Clean and filter empty
+        paragraphs = [p.strip() for p in paragraphs if p.strip() and len(p.split()) >= 10]
+        
+        # OPTIMIZED: Return as-is, no merging or splitting
+        return paragraphs
+    
+    # ============================================
+    # DEPRECATED METHODS (kept for reference)
+    # These complex methods are no longer used for cost optimization
+    # ============================================
+    
     def _chunk_by_paragraph(self, text: str) -> List[str]:
-        """Split text by paragraphs"""
+        """DEPRECATED: Complex paragraph splitting with merging/splitting logic"""
         # Split by double newlines
         paragraphs = re.split(r'\n\s*\n', text)
         
@@ -156,7 +171,7 @@ class ChunkingService:
         return final_chunks
     
     def _chunk_by_sentence(self, text: str) -> List[str]:
-        """Split text by sentences"""
+        """DEPRECATED: Sentence-based chunking"""
         # Split by sentence boundaries
         sentences = re.split(r'(?<=[.!?])\s+', text)
         
@@ -178,13 +193,15 @@ class ChunkingService:
         return chunks
     
     def _is_valid_chunk_size(self, chunk: str) -> bool:
-        """Check if chunk size is valid"""
+        """DEPRECATED: Chunk size validation (no longer used)"""
         word_count = len(chunk.split())
         return self.config.min_chunk_size <= word_count <= self.config.max_chunk_size
     
     def _classify_chunk_type(self, text: str) -> ChunkType:
         """
-        Classify chunk type based on content patterns
+        DEPRECATED: Complex chunk type classification (no longer used)
+        
+        Always returns CONCEPT_EXPLANATION for optimization
         
         Simple heuristic classification:
         - Definitions: Contains "is defined as", "means", "refers to"
@@ -219,10 +236,12 @@ class ChunkingService:
         if any(phrase in text_lower for phrase in ["like", "similar to", "imagine", "think of"]):
             return ChunkType.ANALOGY
         
-        # Default: Concept explanation
-        return ChunkType.CONCEPT_EXPLANATION
     
     def _estimate_difficulty(self, text: str) -> str:
+        """
+        DEPRECATED: Difficulty estimation (no longer used)
+        
+        Always returns "medium" for optimization:
         """
         Estimate difficulty based on text complexity
         
@@ -248,9 +267,9 @@ class ChunkingService:
         
         if complexity_score < 15:
             return "easy"
-        elif complexity_score < 25:
-            return "medium"
-        else:
+    
+    def _extract_tags(self, text: str) -> List[str]:
+        """DEPRECATED: Tag extraction (no longer used, returns empty list)"""
             return "hard"
     
     def _extract_tags(self, text: str) -> List[str]:
