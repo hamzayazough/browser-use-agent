@@ -1,5 +1,5 @@
 """
-Video Content Extractor (placeholder)
+Video Content Extractor (DISABLED for cost optimization)
 """
 import logging
 from typing import Optional
@@ -11,29 +11,38 @@ logger = logging.getLogger(__name__)
 
 
 class VideoExtractor(BaseExtractor):
-    """Extract transcripts from video content"""
+    """
+    Video transcript extractor - DISABLED
+    
+    Video transcripts are expensive to generate and process.
+    This extractor is disabled to reduce costs.
+    """
     
     def can_extract(self, url: str, content_format: str) -> bool:
-        """Check if can extract from video"""
-        return content_format.upper() == "VIDEO" or "youtube.com" in url or "vimeo.com" in url
+        """
+        OPTIMIZATION: Always return False to skip video extraction
+        
+        Videos are expensive to process:
+        - Transcript generation costs money
+        - Large text content increases embedding costs
+        - Slower processing time
+        """
+        return False  # OPTIMIZED: Disabled video extraction
     
     async def extract(self, url: str, source_id: str) -> Optional[ExtractedContent]:
         """
-        Extract transcript from video
+        OPTIMIZATION: Video extraction disabled
         
         Args:
             url: Video URL
             source_id: Source ID
             
         Returns:
-            ExtractedContent or None
+            None (extraction skipped)
         """
-        logger.warning(f"Video extraction not yet implemented for: {url}")
+        logger.info(f"⏭️  Skipping video extraction for cost optimization: {url}")
         
-        # TODO: Implement video transcript extraction
-        # Options:
-        # 1. YouTube Transcript API
-        # 2. AssemblyAI for audio transcription
-        # 3. Whisper API for speech-to-text
+        # OPTIMIZED: Return None to skip video processing entirely
+        # Video transcripts are too expensive to generate and process
         
         return None

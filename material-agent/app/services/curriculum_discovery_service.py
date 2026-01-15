@@ -496,15 +496,17 @@ class CurriculumDiscoveryService:
                - URL
                - Publisher
                - License type (if visible: CC-BY, CC-BY-SA, CC-BY-NC-SA, etc.)
-               - Content format (PDF, HTML, VIDEO - avoid VIDEO)
+               - Content format (PDF or HTML ONLY - NO VIDEO)
                - Brief description
             
-            4. Prioritize:
-               - Khan Academy first (fast HTML content)
-               - Government PDFs second
-               - Avoid video sources (expensive to process)
+            4. CRITICAL - Prioritize by format (cost optimization):
+               - HTML content (Khan Academy articles) - BEST
+               - PDF documents (government resources) - GOOD
+               - NEVER choose video sources (YouTube, Vimeo, etc.) - TOO EXPENSIVE
             
-            5. Use 'done' action when you found 1 good source
+            5. If a source is video-only, skip it and find an alternative
+            
+            6. Use 'done' action when you found 1 good non-video source
             """
             
             # Run agent with reduced max_steps (OPTIMIZED: 15 instead of 30)
