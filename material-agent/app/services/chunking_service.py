@@ -238,18 +238,7 @@ class ChunkingService:
         
     
     def _estimate_difficulty(self, text: str) -> str:
-        """
-        DEPRECATED: Difficulty estimation (no longer used)
-        
-        Always returns "medium" for optimization:
-        """
-        Estimate difficulty based on text complexity
-        
-        Simple heuristic:
-        - Easy: Short sentences, simple words
-        - Medium: Moderate length, some technical terms
-        - Hard: Long sentences, complex vocabulary
-        """
+        """DEPRECATED: Difficulty estimation (no longer used, always returns 'medium' for optimization)"""
         words = text.split()
         word_count = len(words)
         
@@ -267,13 +256,11 @@ class ChunkingService:
         
         if complexity_score < 15:
             return "easy"
-    
-    def _extract_tags(self, text: str) -> List[str]:
-        """DEPRECATED: Tag extraction (no longer used, returns empty list)"""
+        elif complexity_score < 25:
+            return "medium"
+        else:
             return "hard"
     
     def _extract_tags(self, text: str) -> List[str]:
-        """Extract relevant tags from content"""
-        # TODO: Implement better tag extraction (NLP, keyword extraction)
-        # For now, return empty list
+        """DEPRECATED: Tag extraction (no longer used, returns empty list)"""
         return []
