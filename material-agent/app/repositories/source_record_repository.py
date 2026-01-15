@@ -3,6 +3,7 @@ Repository for SourceRecord MongoDB operations
 """
 from typing import List, Optional
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from datetime import datetime
 import logging
 
 from app.models.source_record import SourceRecordModel
@@ -42,3 +43,22 @@ class SourceRecordRepository:
         await self.collection.create_index("url", unique=True)
         await self.collection.create_index([("scoring.total", -1)])
         logger.info("Created source_records indexes")
+    
+    async def update_created_chunks(
+        self,
+        source_id: str,
+        chunk_ids: List[str]
+    ):
+        """Update source record with created chunk IDs"""
+        await self.collection.update_one(
+            {"source_id": source_id},
+            {
+                "$set": {
+                    "created_chunk_ids": chunk_ids,
+                    "extraction.chunks_created": len(chunk_ids),
+                    "extraction.last_extracted_at": datetime.utcnow(),
+                    "extraction.extraction_successful": True
+                }
+            }
+        )
+        logger.info(f"Updated source {source_id} with {len(chunk_ids)} chunk IDs")

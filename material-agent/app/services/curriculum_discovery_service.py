@@ -227,7 +227,7 @@ class CurriculumDiscoveryService:
         """
         Step 2: Extract topics and learning objectives from official documents
         
-        Uses Browser-Use agent to parse curriculum structure
+        Uses Browser-Use agent to parse curriculum structure with intelligent grouping
         
         Args:
             official_docs: Official curriculum documents
@@ -239,7 +239,7 @@ class CurriculumDiscoveryService:
         # Use the first (most authoritative) document
         primary_doc = official_docs[0]
         
-        # Create parsing task
+        # Create parsing task with intelligent grouping
         task = f"""
         Parse curriculum structure from official document:
         
@@ -249,20 +249,42 @@ class CurriculumDiscoveryService:
         
         Instructions:
         1. Navigate to the document
-        2. Extract the curriculum structure:
-           - Main topics (units, modules, themes)
-           - Learning objectives for each topic
-           - Sequential order
-        3. For each topic, extract:
-           - Topic name
-           - Description
-           - Learning objectives (what students should learn)
-           - Estimated hours (if available)
-        4. Generate unique IDs:
-           - Topics: t1_topic_name, t2_topic_name, etc.
-           - Objectives: obj_topic_001, obj_topic_002, etc.
-        5. Return structured data with clear hierarchy
-        6. Use 'done' action when complete
+        2. Identify ALL main curriculum topics/domains for Grade {request.grade}
+        
+        3. INTELLIGENT TOPIC GROUPING:
+           - If there are 10+ topics: Review if some are too specific and can be grouped
+           - Group topics ONLY if they are closely related and share similar concepts
+           - DO NOT force grouping unrelated topics just to reduce the count
+           - If all 10+ topics are distinct, keep them separate
+           - Optimal: 5-9 well-defined topics, but quality > arbitrary count
+           
+           Example for Math Grade 4:
+           - TOO SPECIFIC (should group): "Addition", "Subtraction", "Multiplication", "Division" → "Operations & Algebraic Thinking"
+           - RELATED (should group): "Fractions - Addition", "Fractions - Subtraction" → "Operations with Fractions"
+           - DISTINCT (keep separate): "Operations", "Geometry", "Measurement", "Data Analysis" → Keep all 4
+           
+           If topics are naturally distinct, keep them ALL even if 10+
+           
+        4. For EACH topic, extract:
+           - Topic name (clear, descriptive)
+           - Description (what the topic covers)
+           - ALL learning objectives under that topic
+           - Sequential order (1, 2, 3...)
+           - Estimated hours (if mentioned, otherwise skip)
+        
+        5. For each learning objective:
+           - Unique ID: obj_[topic_id]_[number]
+           - Description: What students should be able to do
+           - Keep objectives specific and actionable
+        
+        6. Generate unique IDs:
+           - Topics: t1_operations, t2_fractions, etc. (use short keywords)
+           - Objectives: obj_t1_001, obj_t1_002, etc.
+        
+        7. Return structured data with COMPLETE curriculum hierarchy
+        8. Use 'done' action when all topics and objectives are extracted
+        
+        IMPORTANT: Extract ALL topics for the grade level, but group intelligently if there are too many.
         """
         
         # Run agent with structured output
@@ -290,7 +312,7 @@ class CurriculumDiscoveryService:
         """
         Step 3: Search for Open Educational Resources
         
-        Uses Browser-Use agent to search for OER materials
+        Uses Browser-Use agent to search for OER materials with intelligent coverage
         
         Args:
             topics: Curriculum topics
@@ -301,45 +323,60 @@ class CurriculumDiscoveryService:
         """
         all_sources = []
         
-        # Search for sources topic by topic
-        for topic in topics[:5]:  # Limit to first 5 topics for MVP
+        # Search for sources for ALL topics (agent decides coverage)
+        for topic in topics:
             logger.info(f"Searching OER for topic: {topic.name}")
             
-            # Build search query
-            search_query = f"{topic.name} {request.subject} grade {request.grade} OER open educational resources"
+            # Count objectives for this topic
+            num_objectives = len(topic.objectives)
             
-            # Create search task
+            # Create intelligent search task
             task = f"""
-            Search for Open Educational Resources (OER):
+            Search for Open Educational Resources:
             
             Topic: {topic.name}
             Subject: {request.subject}
             Grade: {request.grade}
+            Number of learning objectives: {num_objectives}
             
             Instructions:
             1. Search for OER materials from trusted sources:
-               - Khan Academy (khanacademy.org)
-               - OpenStax (openstax.org)
-               - OER Commons (oercommons.org)
-               - MIT OpenCourseWare (ocw.mit.edu)
-               - CK-12 Foundation (ck12.org)
-               - Government education websites
+               - Khan Academy (khanacademy.org) - usually has HTML/video content
+               - Government education sites (.gov, .edu) - often PDFs
+               - OpenStax, OER Commons, CK-12 if relevant
             
             2. For each resource found, extract:
                - Title
                - URL
                - Publisher
-               - License type (CC-BY, CC-BY-SA, etc.)
+               - License type (if visible: CC-BY, CC-BY-SA, CC-BY-NC-SA, etc.)
                - Content format (PDF, HTML, VIDEO, etc.)
-               - Description
+               - Brief description
             
-            3. Find 3-5 resources per topic
-            4. Verify license is open (Creative Commons, Public Domain)
-            5. Return structured data
-            6. Use 'done' action when complete
+            3. INTELLIGENT COVERAGE:
+               - If topic has {num_objectives} objectives, find enough sources to cover them ALL
+               - For compound topics (e.g., "Measurement and Data"), ensure BOTH components are covered
+               - Minimum: 2 sources per topic
+               - Maximum: 5 sources per topic
+               - Before stopping, verify all {num_objectives} objectives have at least one source
+               - If sources are narrow/incomplete, search additional sources
+               - Prioritize quality over quantity, but completeness over speed
+            
+            4. COMPREHENSIVE SEARCH STRATEGY:
+               - Start with Khan Academy for the full topic
+               - If topic has multiple components (e.g., "Measurement AND Data"), search each component separately
+               - Check multiple units/sections within the same platform
+               - Only stop when you're confident all objectives are addressed
+            
+            5. For licenses: If not explicitly stated, assume:
+               - Khan Academy: CC-BY-NC-SA
+               - Government (.gov): CUSTOM_OER or PUBLIC-DOMAIN
+               - University (.edu): Check their license page if available
+            
+            6. Use 'done' action when you have sufficient coverage of ALL {num_objectives} objectives
             """
             
-            # Run agent
+            # Run agent with reasonable max_steps
             from pydantic import BaseModel
             
             class SourcesOutput(BaseModel):
@@ -348,7 +385,7 @@ class CurriculumDiscoveryService:
             result = await self.browser_helper.extract_structured_data(
                 task=task,
                 output_model=SourcesOutput,
-                max_steps=80
+                max_steps=30  # Reasonable limit: not too long, not too short
             )
             
             if result and result.sources:
@@ -365,8 +402,8 @@ class CurriculumDiscoveryService:
                 
                 all_sources.extend(result.sources)
             
-            # Rate limiting (optional)
-            await asyncio.sleep(2)
+            # Small delay to avoid overwhelming the browser service
+            await asyncio.sleep(1)
         
         return all_sources
     

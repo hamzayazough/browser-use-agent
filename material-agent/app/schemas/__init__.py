@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 # Import curriculum discovery schemas
 from .curriculum_discovery import *
 from .source_scoring import *
+from .content_extraction import *
 from datetime import datetime
 from enum import Enum
 
