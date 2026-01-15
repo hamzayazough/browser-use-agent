@@ -50,24 +50,30 @@ class HTMLExtractor(BaseExtractor):
                 headless=True
             )
             
-            # Create extraction task
+            # Create extraction task (OPTIMIZED: summary only, not full content)
             task = f"""
             Navigate to: {url}
             
-            Extract the main educational content:
-            1. Identify the main content area (skip navigation, ads, footers)
-            2. Extract all text content including:
-               - Headings and titles
-               - Paragraphs and explanations
-               - Examples and code snippets
-               - Lists and bullet points
-            3. Preserve the logical structure
-            4. Note any images or diagrams (URLs)
-            5. Return the content in a structured format
-            6. Use 'done' action when complete
+            OPTIMIZED EXTRACTION - Extract SUMMARY ONLY (not full content):
+            1. Identify the main educational content area
+            2. Extract ONLY:
+               - Main topic/title
+               - Key concepts (bullet points)
+               - Learning objectives (if stated)
+               - 2-3 sentence summary of what's covered
+               - Any critical definitions or formulas
+            3. SKIP:
+               - Full paragraphs and detailed explanations
+               - All examples and exercises
+               - Navigation, ads, footers
+               - Repetitive content
+            4. Keep response under 500 words
+            5. Use 'done' action when complete
+            
+            Goal: Quick summary for understanding what's available, not deep content.
             """
             
-            # Run agent
+            # Run agent (OPTIMIZED: reduced max_steps 30 → 15)
             agent = Agent(
                 task=task,
                 llm=self.llm,
@@ -75,7 +81,7 @@ class HTMLExtractor(BaseExtractor):
                 use_vision=False
             )
             
-            history = await agent.run(max_steps=30)
+            history = await agent.run(max_steps=15)  # OPTIMIZED: Reduced from 30
             
             # Extract result
             content_text = history.final_result() or ""

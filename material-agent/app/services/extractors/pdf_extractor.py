@@ -49,23 +49,31 @@ class PDFExtractor(BaseExtractor):
                 pdf_file = io.BytesIO(pdf_bytes)
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
                 
-                # Extract all text
+                # OPTIMIZED: Extract summary only (first few pages + headings)
                 text_parts = []
                 total_pages = len(pdf_reader.pages)
                 
-                for page_num in range(total_pages):
+                # Extract first 3 pages only (OPTIMIZED: not all pages)
+                max_pages_to_extract = min(3, total_pages)
+                
+                for page_num in range(max_pages_to_extract):
                     page = pdf_reader.pages[page_num]
                     text = page.extract_text()
                     if text:
-                        text_parts.append(text)
+                        # Simple extraction: just take first 1000 chars per page
+                        text_parts.append(text[:1000])
                 
+                # OPTIMIZED: Limit total text to ~3000 words max
                 raw_text = "\n\n".join(text_parts)
+                raw_text = raw_text[:15000]  # ~3000 words max
                 
                 # Get metadata
                 metadata = {
                     "url": url,
                     "total_pages": total_pages,
-                    "format": "PDF"
+                    "pages_extracted": max_pages_to_extract,
+                    "format": "PDF",
+                    "extraction_mode": "summary_only"  # Flag for tracking
                 }
                 
                 if pdf_reader.metadata:
@@ -84,7 +92,7 @@ class PDFExtractor(BaseExtractor):
                     has_visuals=False
                 )
                 
-                logger.info(f"✅ Extracted {word_count} words from {total_pages} pages")
+                logger.info(f"✅ Extracted summary ({word_count} words) from first {max_pages_to_extract}/{total_pages} pages")
                 
                 return extracted
                 
