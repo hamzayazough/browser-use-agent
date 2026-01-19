@@ -1,3 +1,0 @@
-"""
-Material Agent Application
-"""
